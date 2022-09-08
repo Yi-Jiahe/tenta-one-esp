@@ -28,13 +28,9 @@
 #include "esp_hid_gap.h"
 #include "report_maps.h"
 #include "hid_cc_report.h"
+#include "config.h"
+#include "keylayouts.h"
 
-static const int kEncoderSwitchPin = 25;
-static const int kEncoderA = 33;
-static const int kEncoderB = 32;
-
-static const int kJoystickXADCChannel = ADC2_CHANNEL_7;
-static const int kJoystickYADCChannel = ADC2_CHANNEL_9;
 static const char *ADC_TAG = "ADC";
 
 // ADC Attenuation
@@ -54,6 +50,10 @@ static const char *ADC_TAG = "ADC";
 static int adc_raw[2][10];
 
 static esp_adc_cal_characteristics_t adc2_chars;
+
+static const char *BLE_TAG = "BLE";
+
+QueueHandle_t keyboard_q;
 
 typedef struct
 {
@@ -105,10 +105,31 @@ static void encoder_counter_task(void *pvParameter)
     // Start encoder
     ESP_ERROR_CHECK(encoder->start(encoder));
 
+    int prevEncoderValue = 0;
+
     while (1)
     {
+        
+        uint8_t key_report[HID_KEYBOARD_IN_RPT_LEN] = { 0 };
+        int i = 0;
+
+        int currEncoderValue = encoder->get_counter_value(encoder);
+        do {
+            if (currEncoderValue == prevEncoderValue) {
+                break;
+            }
+            if (currEncoderValue < prevEncoderValue) {
+                key_report[i] = ASCII_2B;
+            } else if (currEncoderValue < prevEncoderValue) {
+                key_report[i] = ASCII_2D;
+            }
+            prevEncoderValue = currEncoderValue;
+        } while(0);
+
+		xQueueSend(keyboard_q, (void*)&key_report, (TickType_t) 0);
         // ESP_LOGI(TAG, "Encoder value: %d", encoder->get_counter_value(encoder));
-        vTaskDelay(pdMS_TO_TICKS(1000));
+
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -182,26 +203,22 @@ static void joystick_read_task(void *pvParameter)
 static local_param_t s_ble_hid_param = {0};
 
 static esp_hid_raw_report_map_t ble_report_maps[] = {
-    {
-        .data = hidapiReportMap,
-        .len = sizeof(hidapiReportMap)
-    },
-    {
-        .data = mediaReportMap,
-        .len = sizeof(mediaReportMap)
-    }
-};
+    {.data = hidapiReportMap,
+     .len = sizeof(hidapiReportMap)},
+    {.data = mediaReportMap,
+     .len = sizeof(mediaReportMap)},
+    {.data = keyboardReportMap,
+     .len = sizeof(keyboardReportMap)}};
 
 static esp_hid_device_config_t ble_hid_config = {
-    .vendor_id          = 0x16C0,
-    .product_id         = 0x05DF,
-    .version            = 0x0100,
-    .device_name        = "Tenta-one BLE",
-    .manufacturer_name  = "Espressif",
-    .serial_number      = "1234567890",
-    .report_maps        = ble_report_maps,
-    .report_maps_len    = 2
-};
+    .vendor_id = 0x16C0,
+    .product_id = 0x05DF,
+    .version = 0x0100,
+    .device_name = "Tenta-one BLE",
+    .manufacturer_name = "Espressif",
+    .serial_number = "1234567890",
+    .report_maps = ble_report_maps,
+    .report_maps_len = 2};
 
 void esp_hidd_send_consumer_value(uint8_t key_cmd, bool key_pressed)
 {
@@ -211,34 +228,45 @@ void esp_hidd_send_consumer_value(uint8_t key_cmd, bool key_pressed)
     return;
 }
 
-void ble_hid_demo_task(void *pvParameters)
+void ble_hid_consume_keyboard_queue_task(void *pvParameters)
 {
-    static bool send_volum_up = false;
-    while (1) {
-        ESP_LOGI(TAG, "Send the volume");
-        if (send_volum_up) {
-            esp_hidd_send_consumer_value(HID_CONSUMER_VOLUME_UP, true);
-            vTaskDelay(100 / portTICK_PERIOD_MS);
-            esp_hidd_send_consumer_value(HID_CONSUMER_VOLUME_UP, false);
-        } else {
-            esp_hidd_send_consumer_value(HID_CONSUMER_VOLUME_DOWN, true);
-            vTaskDelay(100 / portTICK_PERIOD_MS);
-            esp_hidd_send_consumer_value(HID_CONSUMER_VOLUME_DOWN, false);
+	keyboard_q = xQueueCreate(32, HID_KEYBOARD_IN_RPT_LEN * sizeof(uint8_t));
+
+    if (keyboard_q != NULL)
+    {
+        // Empty queue if initialized (there might be something left from last connection)
+        xQueueReset(keyboard_q);
+
+        while (1)
+        {
+            uint8_t key_report[HID_KEYBOARD_IN_RPT_LEN] = { 0 };
+
+            // pend on MQ, if timeout triggers, just wait again.
+            if (xQueueReceive(keyboard_q, key_report, portMAX_DELAY))
+            {
+
+                esp_hidd_dev_input_set(s_ble_hid_param.hid_dev, 1,
+                                    HID_RPT_ID_KEY_IN, key_report, HID_KEYBOARD_IN_RPT_LEN);
+            }
         }
-        send_volum_up = !send_volum_up;
-        vTaskDelay(2000 / portTICK_PERIOD_MS);
+    }
+    else
+    {
+        ESP_LOGE(BLE_TAG, "ble hid queue not initialized, retry in 1s");
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
 
 void ble_hid_task_start_up(void)
 {
-    xTaskCreate(ble_hid_demo_task, "ble_hid_demo_task", 2 * 1024, NULL, configMAX_PRIORITIES - 3,
+    xTaskCreate(ble_hid_consume_keyboard_queue_task, "ble_hid_consume_keyboard_queue_task", 2 * 2048, NULL, configMAX_PRIORITIES - 3,
                 &s_ble_hid_param.task_hdl);
 }
 
 void ble_hid_task_shut_down(void)
 {
-    if (s_ble_hid_param.task_hdl) {
+    if (s_ble_hid_param.task_hdl)
+    {
         vTaskDelete(s_ble_hid_param.task_hdl);
         s_ble_hid_param.task_hdl = NULL;
     }
@@ -250,42 +278,51 @@ static void ble_hidd_event_callback(void *handler_args, esp_event_base_t base, i
     esp_hidd_event_data_t *param = (esp_hidd_event_data_t *)event_data;
     static const char *TAG = "HID_DEV_BLE";
 
-    switch (event) {
-    case ESP_HIDD_START_EVENT: {
+    switch (event)
+    {
+    case ESP_HIDD_START_EVENT:
+    {
         ESP_LOGI(TAG, "START");
         esp_hid_ble_gap_adv_start();
         break;
     }
-    case ESP_HIDD_CONNECT_EVENT: {
+    case ESP_HIDD_CONNECT_EVENT:
+    {
         ESP_LOGI(TAG, "CONNECT");
-        ble_hid_task_start_up();//todo: this should be on auth_complete (in GAP)
+        ble_hid_task_start_up(); // todo: this should be on auth_complete (in GAP)
         break;
     }
-    case ESP_HIDD_PROTOCOL_MODE_EVENT: {
+    case ESP_HIDD_PROTOCOL_MODE_EVENT:
+    {
         ESP_LOGI(TAG, "PROTOCOL MODE[%u]: %s", param->protocol_mode.map_index, param->protocol_mode.protocol_mode ? "REPORT" : "BOOT");
         break;
     }
-    case ESP_HIDD_CONTROL_EVENT: {
+    case ESP_HIDD_CONTROL_EVENT:
+    {
         ESP_LOGI(TAG, "CONTROL[%u]: %sSUSPEND", param->control.map_index, param->control.control ? "EXIT_" : "");
         break;
     }
-    case ESP_HIDD_OUTPUT_EVENT: {
+    case ESP_HIDD_OUTPUT_EVENT:
+    {
         ESP_LOGI(TAG, "OUTPUT[%u]: %8s ID: %2u, Len: %d, Data:", param->output.map_index, esp_hid_usage_str(param->output.usage), param->output.report_id, param->output.length);
         ESP_LOG_BUFFER_HEX(TAG, param->output.data, param->output.length);
         break;
     }
-    case ESP_HIDD_FEATURE_EVENT: {
+    case ESP_HIDD_FEATURE_EVENT:
+    {
         ESP_LOGI(TAG, "FEATURE[%u]: %8s ID: %2u, Len: %d, Data:", param->feature.map_index, esp_hid_usage_str(param->feature.usage), param->feature.report_id, param->feature.length);
         ESP_LOG_BUFFER_HEX(TAG, param->feature.data, param->feature.length);
         break;
     }
-    case ESP_HIDD_DISCONNECT_EVENT: {
+    case ESP_HIDD_DISCONNECT_EVENT:
+    {
         ESP_LOGI(TAG, "DISCONNECT: %s", esp_hid_disconnect_reason_str(esp_hidd_dev_transport_get(param->disconnect.dev), param->disconnect.reason));
         ble_hid_task_shut_down();
         esp_hid_ble_gap_adv_start();
         break;
     }
-    case ESP_HIDD_STOP_EVENT: {
+    case ESP_HIDD_STOP_EVENT:
+    {
         ESP_LOGI(TAG, "STOP");
         break;
     }
@@ -300,22 +337,19 @@ static void ble_hidd_event_callback(void *handler_args, esp_event_base_t base, i
 static local_param_t s_bt_hid_param = {0};
 
 static esp_hid_raw_report_map_t bt_report_maps[] = {
-    {
-        .data = mouseReportMap,
-        .len = sizeof(mouseReportMap)
-    },
+    {.data = mouseReportMap,
+     .len = sizeof(mouseReportMap)},
 };
 
 static esp_hid_device_config_t bt_hid_config = {
-    .vendor_id          = 0x16C0,
-    .product_id         = 0x05DF,
-    .version            = 0x0100,
-    .device_name        = "Tenta-one BT Classic",
-    .manufacturer_name  = "Espressif",
-    .serial_number      = "1234567890",
-    .report_maps        = bt_report_maps,
-    .report_maps_len    = 1
-};
+    .vendor_id = 0x16C0,
+    .product_id = 0x05DF,
+    .version = 0x0100,
+    .device_name = "Tenta-one BT Classic",
+    .manufacturer_name = "Espressif",
+    .serial_number = "1234567890",
+    .report_maps = bt_report_maps,
+    .report_maps_len = 1};
 
 // send the buttons, change in x, and change in y
 void send_mouse(uint8_t buttons, char dx, char dy, char wheel)
@@ -330,22 +364,24 @@ void send_mouse(uint8_t buttons, char dx, char dy, char wheel)
 
 void bt_hid_demo_task(void *pvParameters)
 {
-    static const char* help_string = "########################################################################\n"\
-    "BT hid mouse demo usage:\n"\
-    "You can input these value to simulate mouse: 'q', 'w', 'e', 'a', 's', 'd', 'h'\n"\
-    "q -- click the left key\n"\
-    "w -- move up\n"\
-    "e -- click the right key\n"\
-    "a -- move left\n"\
-    "s -- move down\n"\
-    "d -- move right\n"\
-    "h -- show the help\n"\
-    "########################################################################\n";
+    static const char *help_string = "########################################################################\n"
+                                     "BT hid mouse demo usage:\n"
+                                     "You can input these value to simulate mouse: 'q', 'w', 'e', 'a', 's', 'd', 'h'\n"
+                                     "q -- click the left key\n"
+                                     "w -- move up\n"
+                                     "e -- click the right key\n"
+                                     "a -- move left\n"
+                                     "s -- move down\n"
+                                     "d -- move right\n"
+                                     "h -- show the help\n"
+                                     "########################################################################\n";
     printf("%s\n", help_string);
     char c;
-    while (1) {
+    while (1)
+    {
         c = fgetc(stdin);
-        switch (c) {
+        switch (c)
+        {
         case 'q':
             send_mouse(1, 0, 0, 0);
             break;
@@ -382,7 +418,8 @@ void bt_hid_task_start_up(void)
 
 void bt_hid_task_shut_down(void)
 {
-    if (s_bt_hid_param.task_hdl) {
+    if (s_bt_hid_param.task_hdl)
+    {
         vTaskDelete(s_bt_hid_param.task_hdl);
         s_bt_hid_param.task_hdl = NULL;
     }
@@ -394,54 +431,71 @@ static void bt_hidd_event_callback(void *handler_args, esp_event_base_t base, in
     esp_hidd_event_data_t *param = (esp_hidd_event_data_t *)event_data;
     static const char *TAG = "HID_DEV_BT";
 
-    switch (event) {
-    case ESP_HIDD_START_EVENT: {
-        if (param->start.status == ESP_OK) {
+    switch (event)
+    {
+    case ESP_HIDD_START_EVENT:
+    {
+        if (param->start.status == ESP_OK)
+        {
             ESP_LOGI(TAG, "START OK");
             ESP_LOGI(TAG, "Setting to connectable, discoverable");
             esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
-        } else {
+        }
+        else
+        {
             ESP_LOGE(TAG, "START failed!");
         }
         break;
     }
-    case ESP_HIDD_CONNECT_EVENT: {
-        if (param->connect.status == ESP_OK) {
+    case ESP_HIDD_CONNECT_EVENT:
+    {
+        if (param->connect.status == ESP_OK)
+        {
             ESP_LOGI(TAG, "CONNECT OK");
             ESP_LOGI(TAG, "Setting to non-connectable, non-discoverable");
             esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
             bt_hid_task_start_up();
-        } else {
+        }
+        else
+        {
             ESP_LOGE(TAG, "CONNECT failed!");
         }
         break;
     }
-    case ESP_HIDD_PROTOCOL_MODE_EVENT: {
+    case ESP_HIDD_PROTOCOL_MODE_EVENT:
+    {
         ESP_LOGI(TAG, "PROTOCOL MODE[%u]: %s", param->protocol_mode.map_index, param->protocol_mode.protocol_mode ? "REPORT" : "BOOT");
         break;
     }
-    case ESP_HIDD_OUTPUT_EVENT: {
+    case ESP_HIDD_OUTPUT_EVENT:
+    {
         ESP_LOGI(TAG, "OUTPUT[%u]: %8s ID: %2u, Len: %d, Data:", param->output.map_index, esp_hid_usage_str(param->output.usage), param->output.report_id, param->output.length);
         ESP_LOG_BUFFER_HEX(TAG, param->output.data, param->output.length);
         break;
     }
-    case ESP_HIDD_FEATURE_EVENT: {
+    case ESP_HIDD_FEATURE_EVENT:
+    {
         ESP_LOGI(TAG, "FEATURE[%u]: %8s ID: %2u, Len: %d, Data:", param->feature.map_index, esp_hid_usage_str(param->feature.usage), param->feature.report_id, param->feature.length);
         ESP_LOG_BUFFER_HEX(TAG, param->feature.data, param->feature.length);
         break;
     }
-    case ESP_HIDD_DISCONNECT_EVENT: {
-        if (param->disconnect.status == ESP_OK) {
+    case ESP_HIDD_DISCONNECT_EVENT:
+    {
+        if (param->disconnect.status == ESP_OK)
+        {
             ESP_LOGI(TAG, "DISCONNECT OK");
             bt_hid_task_shut_down();
             ESP_LOGI(TAG, "Setting to connectable, discoverable again");
             esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
-        } else {
+        }
+        else
+        {
             ESP_LOGE(TAG, "DISCONNECT failed!");
         }
         break;
     }
-    case ESP_HIDD_STOP_EVENT: {
+    case ESP_HIDD_STOP_EVENT:
+    {
         ESP_LOGI(TAG, "STOP");
         break;
     }
@@ -459,22 +513,23 @@ void app_main(void)
     configure_gpio();
 
     ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
-    ESP_ERROR_CHECK( ret );
+    ESP_ERROR_CHECK(ret);
 
     ESP_LOGI(TAG, "setting hid gap, mode:%d", HID_DEV_MODE);
     ret = esp_hid_gap_init(HID_DEV_MODE);
-    ESP_ERROR_CHECK( ret );
-
+    ESP_ERROR_CHECK(ret);
 
 #if CONFIG_BT_BLE_ENABLED
     ret = esp_hid_ble_gap_adv_init(ESP_HID_APPEARANCE_GENERIC, ble_hid_config.device_name);
-    ESP_ERROR_CHECK( ret );
+    ESP_ERROR_CHECK(ret);
 
-    if ((ret = esp_ble_gatts_register_callback(esp_hidd_gatts_event_handler)) != ESP_OK) {
+    if ((ret = esp_ble_gatts_register_callback(esp_hidd_gatts_event_handler)) != ESP_OK)
+    {
         ESP_LOGE(TAG, "GATTS register callback failed: %d", ret);
         return;
     }
