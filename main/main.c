@@ -119,14 +119,17 @@ static void encoder_counter_task(void *pvParameter)
                 break;
             }
             if (currEncoderValue < prevEncoderValue) {
-                key_report[i] = ASCII_2B;
-            } else if (currEncoderValue < prevEncoderValue) {
-                key_report[i] = ASCII_2D;
+                key_report[i] = KEY_LEFT_BRACE;
+                ESP_LOGI(TAG, "Encoder down, %02x", KEY_LEFT_BRACE);
+
+            } else if (currEncoderValue > prevEncoderValue) {
+                key_report[i] = KEY_RIGHT_BRACE;
+                ESP_LOGI(TAG, "Encoder up %02x", KEY_RIGHT_BRACE);
             }
             prevEncoderValue = currEncoderValue;
         } while(0);
 
-		xQueueSend(keyboard_q, (void*)&key_report, (TickType_t) 0);
+		// xQueueSend(keyboard_q, (void*)&key_report, (TickType_t) 0);
         // ESP_LOGI(TAG, "Encoder value: %d", encoder->get_counter_value(encoder));
 
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -180,7 +183,6 @@ static void joystick_read_task(void *pvParameter)
         {
             voltage[0] = esp_adc_cal_raw_to_voltage(adc_raw[0][0], &adc2_chars);
         }
-
         do
         {
             ret = adc2_get_raw(kJoystickYADCChannel, ADC_WIDTH_BIT_DEFAULT, &adc_raw[1][0]);
@@ -192,8 +194,8 @@ static void joystick_read_task(void *pvParameter)
             voltage[1] = esp_adc_cal_raw_to_voltage(adc_raw[1][0], &adc2_chars);
         }
 
-        ESP_LOGI(ADC_TAG, "raw  data: %d\t%d", adc_raw[0][0], adc_raw[1][0]);
-        ESP_LOGI(ADC_TAG, "cali data: %d mV\t%d mV", voltage[0], voltage[1]);
+        // ESP_LOGI(ADC_TAG, "raw  data: %d\t%d", adc_raw[0][0], adc_raw[1][0]);
+        // ESP_LOGI(ADC_TAG, "cali data: %d mV\t%d mV", voltage[0], voltage[1]);
 
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -552,6 +554,6 @@ void app_main(void)
 #endif
 
     xTaskCreate(&encoder_switch_reading_task, "button_task", 2048, NULL, 10, NULL);
-    // xTaskCreate(&encoder_counter_task, "encoder_task", 2048, NULL, 10, NULL);
+    xTaskCreate(&encoder_counter_task, "encoder_task", 2048, NULL, 10, NULL);
     xTaskCreate(&joystick_read_task, "joystick_task", 2048, NULL, 10, NULL);
 }
