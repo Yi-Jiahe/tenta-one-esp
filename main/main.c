@@ -552,6 +552,6 @@ void app_main(void)
 #endif
 
     xTaskCreate(&encoder_switch_reading_task, "button_task", 2048, NULL, 10, NULL);
-    xTaskCreate(&encoder_counter_task, "encoder_task", 2048, NULL, 10, NULL);
+    // xTaskCreate(&encoder_counter_task, "encoder_task", 2048, NULL, 10, NULL);
     xTaskCreate(&joystick_read_task, "joystick_task", 2048, NULL, 10, NULL);
 }

@@ -1,8 +1,6 @@
 #ifndef REPORT_MAPS_H
 #define REPORT_MAPS_H
 
-#include "config.h"
-
 // HID Report IDs for the service
 #define HID_RPT_ID_MOUSE_IN 1   // Mouse input report ID
 #define HID_RPT_ID_KEY_IN 2     // Keyboard input report ID
@@ -172,7 +170,7 @@ const unsigned char keyboardReportMap[] = {
     0x91, 0x01, //   Output: (Constant)
     //
     //   Key arrays (6 bytes)
-    0x95, REPORT_COUNT_BYTES, //   Report Count (6)
+    0x95, 0x06, //   Report Count (6)
     0x75, 0x08,               //   Report Size (8)
     0x15, 0x00,               //   Log Min (0)
     0x25, 0x65,               //   Log Max (101)

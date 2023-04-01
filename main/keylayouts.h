@@ -59,7 +59,7 @@ extern "C" {
 //#define LAYOUT_SWEDISH
 //#define LAYOUT_TURKISH
 //#define LAYOUT_UNITED_KINGDOM	
-//#define LAYOUT_US_INTERNATIONAL
+#define LAYOUT_US_INTERNATIONAL
 
 // http://en.wikipedia.org/wiki/Keyboard_layout
 
