@@ -1,6 +1,9 @@
+#define M_PI_8 0.39269908169
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -172,6 +175,9 @@ static void joystick_read_task(void *pvParameter)
     ESP_ERROR_CHECK(adc2_config_channel_atten(kJoystickXADCChannel, ADC_EXAMPLE_ATTEN));
     ESP_ERROR_CHECK(adc2_config_channel_atten(kJoystickYADCChannel, ADC_EXAMPLE_ATTEN));
 
+    bool selecting = false;
+    double selected = 0;
+
     while (1)
     {
         do
@@ -192,6 +198,41 @@ static void joystick_read_task(void *pvParameter)
         if (cali_enable)
         {
             voltage[1] = esp_adc_cal_raw_to_voltage(adc_raw[1][0], &adc2_chars);
+        }
+
+        // TODO: Include joystick angle offset
+
+        int x = adc_raw[0][0] - 2048;
+        int y = -1 * (adc_raw[1][0] - 2048);
+        int magnitude = sqrt(x * x + y * y);
+        double angle = atan2((double)y, (double)x);
+
+        if (magnitude > 1024 * kJoystickDeadZone) {
+            selecting = true;
+            selected = angle;
+        } else {
+            if (selecting) {
+                ESP_LOGI(ADC_TAG, "Selected Angle: %lf", selected);
+                if (selected < -7 * M_PI_8 || selected > 7 * M_PI_8) {
+                    ESP_LOGI(ADC_TAG, "Selected section: %d", 7);
+                } else if (selected < -5 * M_PI_8) {
+                    ESP_LOGI(ADC_TAG, "Selected section: %d", 6);
+                } else if (selected < -3 * M_PI_8) {
+                    ESP_LOGI(ADC_TAG, "Selected section: %d", 5);
+                } else if (selected < -1 * M_PI_8) {
+                    ESP_LOGI(ADC_TAG, "Selected section: %d", 4);
+                } else if (selected < 1 * M_PI_8) {
+                    ESP_LOGI(ADC_TAG, "Selected section: %d", 3);
+                } else if (selected < 3 * M_PI_8) {
+                    ESP_LOGI(ADC_TAG, "Selected section: %d", 2);
+                } else if (selected < 5 * M_PI_8) {
+                    ESP_LOGI(ADC_TAG, "Selected section: %d", 1);
+                } else {
+                    ESP_LOGI(ADC_TAG, "Selected section: %d", 8);
+                }
+
+                selecting = false;
+            }
         }
 
         // ESP_LOGI(ADC_TAG, "raw  data: %d\t%d", adc_raw[0][0], adc_raw[1][0]);
