@@ -39,20 +39,7 @@ static const char *ADC_TAG = "ADC";
 // ADC Attenuation
 #define ADC_EXAMPLE_ATTEN ADC_ATTEN_DB_11
 
-// ADC Calibration
-#if CONFIG_IDF_TARGET_ESP32
-#define ADC_EXAMPLE_CALI_SCHEME ESP_ADC_CAL_VAL_EFUSE_VREF
-#elif CONFIG_IDF_TARGET_ESP32S2
-#define ADC_EXAMPLE_CALI_SCHEME ESP_ADC_CAL_VAL_EFUSE_TP
-#elif CONFIG_IDF_TARGET_ESP32C3
-#define ADC_EXAMPLE_CALI_SCHEME ESP_ADC_CAL_VAL_EFUSE_TP
-#elif CONFIG_IDF_TARGET_ESP32S3
-#define ADC_EXAMPLE_CALI_SCHEME ESP_ADC_CAL_VAL_EFUSE_TP_FIT
-#endif
-
 static int adc_raw[2][10];
-
-static esp_adc_cal_characteristics_t adc2_chars;
 
 static const char *BLE_TAG = "BLE";
 
@@ -68,6 +55,14 @@ typedef struct
 
 static const char *TAG = "main";
 
+static void configure_gpio(void)
+{
+    ESP_LOGI(TAG, "Configuring GPIOs!");
+    gpio_reset_pin(kEncoderSwitchPin);
+    gpio_set_direction(kEncoderSwitchPin, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(kEncoderSwitchPin, GPIO_PULLUP_ONLY);
+}
+
 static void encoder_switch_reading_task(void *pvParameter)
 {
     int prevEncoderState = 1;
@@ -82,14 +77,6 @@ static void encoder_switch_reading_task(void *pvParameter)
 
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }
-}
-
-static void configure_gpio(void)
-{
-    ESP_LOGI(TAG, "Configuring GPIOs!");
-    gpio_reset_pin(kEncoderSwitchPin);
-    gpio_set_direction(kEncoderSwitchPin, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(kEncoderSwitchPin, GPIO_PULLUP_ONLY);
 }
 
 static void encoder_counter_task(void *pvParameter)
@@ -133,7 +120,6 @@ static void encoder_counter_task(void *pvParameter)
         } while(0);
 
 		// xQueueSend(keyboard_q, (void*)&key_report, (TickType_t) 0);
-        // ESP_LOGI(TAG, "Encoder value: %d", encoder->get_counter_value(encoder));
 
         vTaskDelay(pdMS_TO_TICKS(10));
     }
