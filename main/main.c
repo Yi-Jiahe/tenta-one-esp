@@ -161,6 +161,26 @@ static void configure_gpio(void)
     gpio_reset_pin(kEncoderSwitchPin);
     gpio_set_direction(kEncoderSwitchPin, GPIO_MODE_INPUT);
     gpio_set_pull_mode(kEncoderSwitchPin, GPIO_PULLUP_ONLY);
+
+    for (int i = 0; i < knKeypadCols; i++) {
+        // gpio_reset_pin(kKeypadCols[i]);
+        // gpio_set_direction(kKeypadCols[i], GPIO_MODE_OUTPUT);
+        // gpio_set_level(kKeypadCols[i], 0);
+
+        gpio_reset_pin(kKeypadCols[i]);
+        gpio_set_direction(kKeypadCols[i], GPIO_MODE_INPUT);
+        gpio_set_pull_mode(kKeypadCols[i], GPIO_PULLDOWN_ONLY);
+    }
+
+    for (int i = 0; i < knKeypadRows; i++) {
+        // gpio_reset_pin(kKeypadRows[i]);
+        // gpio_set_direction(kKeypadRows[i], GPIO_MODE_INPUT);
+        // gpio_set_pull_mode(kKeypadRows[i], GPIO_PULLDOWN_ONLY);
+
+        gpio_reset_pin(kKeypadRows[i]);
+        gpio_set_direction(kKeypadRows[i], GPIO_MODE_OUTPUT);
+        gpio_set_level(kKeypadRows[i], 0);
+    }
 }
 
 static void encoder_switch_reading_task(void *pvParameter)
@@ -297,6 +317,24 @@ static void joystick_read_task(void *pvParameter)
     }
 }
 
+static void keypad_read_task(void *pvParameter) {
+    uint8_t keys[6];
+
+    while(1) {
+        for (int i = 0; i < knKeypadRows; i++) {
+            gpio_set_level(kKeypadRows[i], 1);
+            for (int j = 0; j < knKeypadCols; j++) {
+                if (gpio_get_level(kKeypadCols[j]) == 1) {
+                    ESP_LOGI("Keypad", "Key indices: [%d, %d]", i, j);
+                }
+            }
+            gpio_set_level(kKeypadRows[i], 0);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
 void app_main(void)
 {
     esp_err_t ret;
@@ -365,4 +403,5 @@ void app_main(void)
     xTaskCreate(&encoder_switch_reading_task, "button_task", 2048, NULL, 10, NULL);
     xTaskCreate(&encoder_counter_task, "encoder_task", 2048, NULL, 10, NULL);
     xTaskCreate(&joystick_read_task, "joystick_task", 2048, NULL, 10, NULL);
+    // xTaskCreate(&keypad_read_task, "keypad", 2048, NULL, 10, NULL);
 }
