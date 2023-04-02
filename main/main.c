@@ -139,39 +139,10 @@ static void encoder_counter_task(void *pvParameter)
     }
 }
 
-static bool adc_calibration_init(void)
-{
-    esp_err_t ret;
-    bool cali_enable = false;
-
-    ret = esp_adc_cal_check_efuse(ADC_EXAMPLE_CALI_SCHEME);
-    if (ret == ESP_ERR_NOT_SUPPORTED)
-    {
-        ESP_LOGW(TAG, "Calibration scheme not supported, skip software calibration");
-    }
-    else if (ret == ESP_ERR_INVALID_VERSION)
-    {
-        ESP_LOGW(TAG, "eFuse not burnt, skip software calibration");
-    }
-    else if (ret == ESP_OK)
-    {
-        cali_enable = true;
-        esp_adc_cal_characterize(ADC_UNIT_2, ADC_EXAMPLE_ATTEN, ADC_WIDTH_BIT_DEFAULT, 0, &adc2_chars);
-    }
-    else
-    {
-        ESP_LOGE(TAG, "Invalid arg");
-    }
-
-    return cali_enable;
-}
-
 static void joystick_read_task(void *pvParameter)
 {
     esp_err_t ret = ESP_OK;
-    uint32_t voltage[] = {0, 0};
 
-    bool cali_enable = adc_calibration_init();
     ESP_ERROR_CHECK(adc2_config_channel_atten(kJoystickXADCChannel, ADC_EXAMPLE_ATTEN));
     ESP_ERROR_CHECK(adc2_config_channel_atten(kJoystickYADCChannel, ADC_EXAMPLE_ATTEN));
 
@@ -185,20 +156,11 @@ static void joystick_read_task(void *pvParameter)
             ret = adc2_get_raw(kJoystickXADCChannel, ADC_WIDTH_BIT_DEFAULT, &adc_raw[0][0]);
         } while (ret == ESP_ERR_INVALID_STATE);
         ESP_ERROR_CHECK(ret);
-        if (cali_enable)
-        {
-            voltage[0] = esp_adc_cal_raw_to_voltage(adc_raw[0][0], &adc2_chars);
-        }
         do
         {
             ret = adc2_get_raw(kJoystickYADCChannel, ADC_WIDTH_BIT_DEFAULT, &adc_raw[1][0]);
         } while (ret == ESP_ERR_INVALID_STATE);
         ESP_ERROR_CHECK(ret);
-
-        if (cali_enable)
-        {
-            voltage[1] = esp_adc_cal_raw_to_voltage(adc_raw[1][0], &adc2_chars);
-        }
 
         // TODO: Include joystick angle offset
 
@@ -234,9 +196,6 @@ static void joystick_read_task(void *pvParameter)
                 selecting = false;
             }
         }
-
-        // ESP_LOGI(ADC_TAG, "raw  data: %d\t%d", adc_raw[0][0], adc_raw[1][0]);
-        // ESP_LOGI(ADC_TAG, "cali data: %d mV\t%d mV", voltage[0], voltage[1]);
 
         vTaskDelay(pdMS_TO_TICKS(100));
     }
