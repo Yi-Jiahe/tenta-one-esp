@@ -252,7 +252,7 @@ static void joystick_read_task(void *pvParameter)
         int magnitude = sqrt(x * x + y * y);
         double angle = atan2((double)y, (double)x);
 
-        if (magnitude > 1024 * kJoystickDeadZone) {
+        if (magnitude > 2048 * kJoystickDeadZone) {
             selecting = true;
             selected = angle;
         } else {
