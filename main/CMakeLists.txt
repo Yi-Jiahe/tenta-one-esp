@@ -1,6 +1,7 @@
 set(srcs "main.c"
-    "esp_hid_gap.c"
-    "hid_cc_report.c")
+    "hid_dev.c"
+    "esp_hidd_prf_api.c"
+    "hid_device_le_prf.c")
 set(include_dirs ".")
 set(requires esp_hid
     "esp_adc_cal"
