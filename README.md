@@ -81,11 +81,11 @@ VRX - GPIO25 | ADC2_CH8
 
 BLE HID Protocol [notes by jpbrucker](https://github.com/jpbrucker/BLE_HID/blob/master/doc/HID.md)
 
-| After releasing the key, the following report will be sent:
-|
-| `null report:    [0, 0, 0, 0, 0, 0, 0, 0]`
-|
-| '4' is replaced with '0'; an array of zeros means nothing is being pressed.
+> After releasing the key, the following report will be sent:
+>
+> `null report:    [0, 0, 0, 0, 0, 0, 0, 0]`
+>
+> '4' is replaced with '0'; an array of zeros means nothing is being pressed.
 
 # Building
 
