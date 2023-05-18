@@ -79,6 +79,14 @@ VRX - GPIO25 | ADC2_CH8
 [ESP32 ADC](https://docs.espressif.com/projects/esp-idf/en/v4.2/esp32/api-reference/peripherals/adc.html)
 [ESP32 Pulse Counter](https://docs.espressif.com/projects/esp-idf/en/v4.2/esp32/api-reference/peripherals/pcnt.html)
 
+BLE HID Protocol [notes by jpbrucker](https://github.com/jpbrucker/BLE_HID/blob/master/doc/HID.md)
+
+> After releasing the key, the following report will be sent:
+>
+> `null report:    [0, 0, 0, 0, 0, 0, 0, 0]`
+>
+> '4' is replaced with '0'; an array of zeros means nothing is being pressed.
+
 # Building
 
 This project is using the ESP-IDF 4.4 CMD for building and flashing. As per the instructions, run `idf.py build` in the root directory to build the project and `idf.py -p PORT flash` to flash the device with the build.
