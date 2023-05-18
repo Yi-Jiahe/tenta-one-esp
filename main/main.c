@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include "driver/gpio.h"
+#include "driver/spi_master.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -24,6 +25,9 @@
 #endif
 #include "esp_bt_main.h"
 #include "esp_bt_device.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_vendor.h"
+#include "esp_lcd_panel_ops.h"
 
 #include "esp_hidd_prf_api.h"
 #include "esp_hidd.h"
@@ -152,6 +156,10 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
         break;
     }
 }
+
+#define LCD_HOST  SPI2_HOST
+
+static const char *LCD_TAG = "LCD";
 
 static const char *TAG = "main";
 
@@ -335,45 +343,32 @@ static void keypad_read_task(void *pvParameter) {
     }
 }
 
-void app_main(void)
-{
-    esp_err_t ret;
-
-    configure_gpio();
-
-    ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
-    {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-
+esp_err_t initialize_ble(esp_err_t ret) {
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret) {
         ESP_LOGE(BLE_TAG, "%s initialize controller failed\n", __func__);
-        return;
+        return ret;
     }
 
     ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
     if (ret) {
         ESP_LOGE(BLE_TAG, "%s enable controller failed\n", __func__);
-        return;
+        return ret;
     }
 
     ret = esp_bluedroid_init();
     if (ret) {
         ESP_LOGE(BLE_TAG, "%s init bluedroid failed\n", __func__);
-        return;
+        return ret;
     }
 
     ret = esp_bluedroid_enable();
     if (ret) {
         ESP_LOGE(BLE_TAG, "%s init bluedroid failed\n", __func__);
-        return;
+        return ret;
     }
 
     if((ret = esp_hidd_profile_init()) != ESP_OK) {
@@ -399,6 +394,84 @@ void app_main(void)
     and the init key means which key you can distribute to the slave. */
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(uint8_t));
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(uint8_t));
+
+    return ESP_OK;
+}
+
+void initialize_lcd() {
+    ESP_LOGI(LCD_TAG, "Turn off LCD backlight");
+    gpio_config_t bk_gpio_config = {
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = 1ULL << kBLPin
+    };
+    ESP_ERROR_CHECK(gpio_config(&bk_gpio_config));
+
+    ESP_LOGI(LCD_TAG, "Initialize SPI bus");
+    spi_bus_config_t buscfg = {
+        .sclk_io_num = kSCLKPin,
+        .mosi_io_num = kMOSIPin,
+        .miso_io_num = -1,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = kDisplayWidth * 80 * sizeof(uint16_t),
+    };
+    ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
+
+    ESP_LOGI(LCD_TAG, "Install panel IO");
+    esp_lcd_panel_io_handle_t io_handle = NULL;
+    esp_lcd_panel_io_spi_config_t io_config = {
+        .dc_gpio_num = kDCPin,
+        .cs_gpio_num = kCSPin,
+        .pclk_hz = kLCDPixelClockHz,
+        .lcd_cmd_bits = kLCDCmdBits,
+        .lcd_param_bits = kLCDParamBits,
+        .spi_mode = 0,
+        .trans_queue_depth = 10,
+        .on_color_trans_done = NULL,
+        .user_ctx = NULL,
+    };
+    // Attach the LCD to the SPI bus
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));
+
+    esp_lcd_panel_handle_t panel_handle = NULL;
+    esp_lcd_panel_dev_config_t panel_config = {
+        .reset_gpio_num = kRSTPin,
+        .bits_per_pixel = 16,
+    };
+    ESP_LOGI(LCD_TAG, "Install ST7789V panel driver");
+    ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io_handle, &panel_config, &panel_handle));
+
+    ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
+    ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
+
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, false));
+
+    // user can flush pre-defined pattern to the screen before we turn on the screen or backlight
+    ESP_ERROR_CHECK(esp_lcd_panel_disp_off(panel_handle, true));
+
+    ESP_LOGI(TAG, "Turn on LCD backlight");
+    gpio_set_level(kBLPin, 1);
+}
+
+void app_main(void)
+{
+    esp_err_t ret;
+
+    configure_gpio();
+
+    ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+
+    ret = initialize_ble(ret);
+    if (ret) { return; }
+
+    initialize_lcd();
 
     xTaskCreate(&encoder_switch_reading_task, "button_task", 2048, NULL, 10, NULL);
     xTaskCreate(&encoder_counter_task, "encoder_task", 2048, NULL, 10, NULL);

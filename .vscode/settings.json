@@ -2,6 +2,10 @@
     "files.associations": {
         "stdio.h": "c",
         "cmath": "c",
-        "freertos.h": "c"
+        "freertos.h": "c",
+        "esp_lcd_panel_io.h": "c",
+        "esp_lcd_panel_vendor.h": "c",
+        "esp_lcd_panel_ops.h": "c",
+        "spi_master.h": "c"
     }
 }
